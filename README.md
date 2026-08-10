@@ -20,6 +20,7 @@ Then rebuild Mooncake on the target machine.
 
 - `mooncake-store/src/CMakeLists.txt`
 - `mooncake-store/src/client_service.cpp`
+- `mooncake-store/src/http_metadata_server.cpp`
 - `mooncake-store/src/real_client.cpp`
 - `mooncake-transfer-engine/include/memory_location.h`
 - `mooncake-transfer-engine/include/transport/rdma_transport/rdma_context.h`
