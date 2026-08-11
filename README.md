@@ -28,3 +28,4 @@ Then rebuild Mooncake on the target machine.
 - `mooncake-transfer-engine/src/memory_location.cpp`
 - `mooncake-transfer-engine/src/transport/rdma_transport/rdma_context.cpp`
 - `mooncake-transfer-engine/src/transport/rdma_transport/rdma_transport.cpp`
+- `mooncake-wheel/mooncake/http_metadata_server.py`
