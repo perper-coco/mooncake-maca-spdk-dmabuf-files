@@ -40,6 +40,47 @@ Expected result:
 - Master metrics should show `Mem Storage` increasing.
 - `NVMe-oF SSD` remains `0 B` because NoF is intentionally disabled.
 
+## vLLM 0.15 external connector
+
+The standalone connector is provided at:
+
+- `vllm-connector/mooncake_store_connector.py`
+
+Use it through vLLM's external connector module path instead of copying it into
+the vLLM package:
+
+```bash
+export PYTHONPATH=/workspace/opt/mooncake_store_v015:${PYTHONPATH:-}
+```
+
+NoF + SPDK GPU dma-buf validation mode:
+
+```bash
+export MC_STORE_REPLICA_NUM=1
+export MC_STORE_NOF_REPLICA_NUM=1
+export MC_SPDK_GPU_DMABUF=1
+export MC_SPDK_GPU_DMABUF_DEVICE_ID=0
+export VLLM_MOONCAKE_GPU_DIRECT=auto
+```
+
+In this mode the connector registers vLLM KV-cache GPU storage and writes raw
+KV blocks with `batch_put_from_multi_buffers`, so Mooncake can allocate NoF SSD
+replicas and enter the SPDK GPU dma-buf path.
+
+DRAM-only fallback mode:
+
+```bash
+unset MC_STORE_NOF_REPLICA_NUM
+unset MC_SPDK_GPU_DMABUF
+unset MC_SPDK_GPU_DMABUF_DEVICE_ID
+export MC_STORE_REPLICA_NUM=1
+export VLLM_MOONCAKE_GPU_DIRECT=off
+```
+
+In this mode the connector copies KV to CPU safetensors bytes and uses ordinary
+Mooncake `put/get`, so it still works when Mooncake is built with
+`USE_NOF=OFF` and `USE_SPDK_GPU_DMABUF=OFF`.
+
 ## Included files
 
 - `mooncake-store/src/CMakeLists.txt`
@@ -53,3 +94,4 @@ Expected result:
 - `mooncake-transfer-engine/src/transport/rdma_transport/rdma_context.cpp`
 - `mooncake-transfer-engine/src/transport/rdma_transport/rdma_transport.cpp`
 - `mooncake-wheel/mooncake/http_metadata_server.py`
+- `vllm-connector/mooncake_store_connector.py`
