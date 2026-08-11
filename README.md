@@ -16,6 +16,30 @@ rsync -av /tmp/mooncake-maca-files/mooncake-transfer-engine/ ./mooncake-transfer
 
 Then rebuild Mooncake on the target machine.
 
+## DRAM-only validation mode
+
+Use this mode to verify that vLLM can still connect to Mooncake after the
+MACA-related fixes, without enabling NoF or SPDK GPU dma-buf:
+
+```bash
+unset MC_STORE_NOF_REPLICA_NUM
+unset MC_SPDK_GPU_DMABUF
+unset MC_SPDK_GPU_DMABUF_DEVICE_ID
+export MC_STORE_REPLICA_NUM=1
+
+cmake ... -DUSE_MACA=ON -DUSE_NOF=OFF -DUSE_SPDK_GPU_DMABUF=OFF
+make -j"$(nproc)"
+pip install -U dist/*.whl
+```
+
+Expected result:
+
+- vLLM can use the external Mooncake connector through the normal Mooncake
+  Python client.
+- Mooncake stores KV data in the DRAM global segment.
+- Master metrics should show `Mem Storage` increasing.
+- `NVMe-oF SSD` remains `0 B` because NoF is intentionally disabled.
+
 ## Included files
 
 - `mooncake-store/src/CMakeLists.txt`
