@@ -53,6 +53,18 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _get_extra_config(cfg: Any, key: str, default: Any,
+                      aliases: tuple[str, ...] = ()) -> Any:
+    value = cfg.get_from_extra_config(key, None)
+    if value is not None:
+        return value
+    for alias in aliases:
+        value = cfg.get_from_extra_config(alias, None)
+        if value is not None:
+            return value
+    return default
+
+
 def align_to_block_size(num_tokens: int, block_size: int) -> int:
     if num_tokens <= 0:
         return 0
@@ -152,57 +164,90 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
         self._registered_buffers: dict[int, int] = {}
 
         cfg = self._kv_transfer_config
-        self._node_address = cfg.get_from_extra_config(
-            "node_address", os.getenv("VLLM_MOONCAKE_NODE_ADDRESS", "localhost")
+        self._node_address = _get_extra_config(
+            cfg,
+            "node_address",
+            os.getenv("VLLM_MOONCAKE_NODE_ADDRESS",
+                      os.getenv("MOONCAKE_NODE_ADDRESS", "90.91.183.36")),
+            aliases=("local_hostname", "hostname"),
         )
-        self._metadata_server = cfg.get_from_extra_config(
+        self._metadata_server = _get_extra_config(
+            cfg,
             "metadata_server",
             os.getenv("VLLM_MOONCAKE_METADATA_SERVER",
-                      "http://127.0.0.1:8080/metadata"),
+                      os.getenv("MOONCAKE_METADATA_SERVER",
+                                "http://172.17.0.1:8080/metadata")),
         )
-        self._master_server_address = cfg.get_from_extra_config(
+        self._master_server_address = _get_extra_config(
+            cfg,
             "master_server_address",
-            os.getenv("VLLM_MOONCAKE_MASTER_SERVER", "127.0.0.1:50051"),
+            os.getenv("VLLM_MOONCAKE_MASTER_SERVER",
+                      os.getenv("MOONCAKE_MASTER_SERVER",
+                                "172.17.0.1:50051")),
+            aliases=("master_address", "master_server"),
         )
         self._global_segment_size = int(
-            cfg.get_from_extra_config("global_segment_size", 0)
+            _get_extra_config(cfg, "global_segment_size", 0)
         )
         self._local_buffer_size = int(
-            cfg.get_from_extra_config("local_buffer_size", 256 * 1024 * 1024)
+            _get_extra_config(cfg, "local_buffer_size", 256 * 1024 * 1024)
         )
-        self._protocol = cfg.get_from_extra_config(
-            "protocol", os.getenv("VLLM_MOONCAKE_PROTOCOL", "rdma")
+        self._protocol = _get_extra_config(
+            cfg,
+            "protocol",
+            os.getenv("VLLM_MOONCAKE_PROTOCOL",
+                      os.getenv("MOONCAKE_PROTOCOL", "rdma")),
         )
-        self._device_name = cfg.get_from_extra_config(
-            "device_name", os.getenv("VLLM_MOONCAKE_DEVICE_NAME", "")
+        self._device_name = _get_extra_config(
+            cfg,
+            "device_name",
+            os.getenv("VLLM_MOONCAKE_DEVICE_NAME",
+                      os.getenv("MOONCAKE_DEVICE_NAME", "hns_0")),
+            aliases=("rdma_device", "rdma_devices"),
         )
-        self._cache_prefix = cfg.get_from_extra_config(
+        self._cache_prefix = _get_extra_config(
+            cfg,
             "cache_prefix", os.getenv("VLLM_MOONCAKE_CACHE_PREFIX", "vllm015")
         )
 
         self._replica_num = int(
-            cfg.get_from_extra_config(
+            _get_extra_config(
+                cfg,
                 "replica_num", _env_int("MC_STORE_REPLICA_NUM", 1)
             )
         )
         self._nof_replica_num = int(
-            cfg.get_from_extra_config(
+            _get_extra_config(
+                cfg,
                 "nof_replica_num", _env_int("MC_STORE_NOF_REPLICA_NUM", 0)
             )
         )
         self._spdk_gpu_dmabuf = _truthy(
-            cfg.get_from_extra_config(
+            _get_extra_config(
+                cfg,
                 "spdk_gpu_dmabuf", os.getenv("MC_SPDK_GPU_DMABUF")
             )
         )
         direct_mode = str(
-            cfg.get_from_extra_config("gpu_direct", os.getenv(
+            _get_extra_config(cfg, "gpu_direct", os.getenv(
                 "VLLM_MOONCAKE_GPU_DIRECT", "auto"))
         ).lower()
         self._gpu_direct_enabled = self._resolve_gpu_direct(direct_mode)
         self._replicate_config = self._make_replicate_config()
 
         self._store = MooncakeDistributedStore()
+        logger.info(
+            "Mooncake Store setup begin: node=%s metadata=%s master=%s "
+            "global_segment_size=%d local_buffer_size=%d protocol=%s "
+            "device=%s",
+            self._node_address,
+            self._metadata_server,
+            self._master_server_address,
+            self._global_segment_size,
+            self._local_buffer_size,
+            self._protocol,
+            self._device_name,
+        )
         setup_rc = self._store.setup(
             self._node_address,
             self._metadata_server,
