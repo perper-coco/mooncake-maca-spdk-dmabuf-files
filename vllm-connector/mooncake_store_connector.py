@@ -9,6 +9,7 @@ import torch
 from safetensors.torch import load as safetensors_load
 from safetensors.torch import save as safetensors_save
 
+from mooncake.mooncake_config import MooncakeConfig
 from mooncake.store import MooncakeDistributedStore
 try:
     from mooncake.store import ReplicateConfig
@@ -53,16 +54,8 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _get_extra_config(cfg: Any, key: str, default: Any,
-                      aliases: tuple[str, ...] = ()) -> Any:
-    value = cfg.get_from_extra_config(key, None)
-    if value is not None:
-        return value
-    for alias in aliases:
-        value = cfg.get_from_extra_config(alias, None)
-        if value is not None:
-            return value
-    return default
+def _extra_config(cfg: Any, key: str, default: Any) -> Any:
+    return cfg.get_from_extra_config(key, default)
 
 
 def align_to_block_size(num_tokens: int, block_size: int) -> int:
@@ -164,72 +157,33 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
         self._registered_buffers: dict[int, int] = {}
 
         cfg = self._kv_transfer_config
-        self._node_address = _get_extra_config(
-            cfg,
-            "node_address",
-            os.getenv("VLLM_MOONCAKE_NODE_ADDRESS",
-                      os.getenv("MOONCAKE_NODE_ADDRESS", "90.91.183.36")),
-            aliases=("local_hostname", "hostname"),
-        )
-        self._metadata_server = _get_extra_config(
-            cfg,
-            "metadata_server",
-            os.getenv("VLLM_MOONCAKE_METADATA_SERVER",
-                      os.getenv("MOONCAKE_METADATA_SERVER",
-                                "http://172.17.0.1:8080/metadata")),
-        )
-        self._master_server_address = _get_extra_config(
-            cfg,
-            "master_server_address",
-            os.getenv("VLLM_MOONCAKE_MASTER_SERVER",
-                      os.getenv("MOONCAKE_MASTER_SERVER",
-                                "172.17.0.1:50051")),
-            aliases=("master_address", "master_server"),
-        )
-        self._global_segment_size = int(
-            _get_extra_config(cfg, "global_segment_size", 0)
-        )
-        self._local_buffer_size = int(
-            _get_extra_config(cfg, "local_buffer_size", 256 * 1024 * 1024)
-        )
-        self._protocol = _get_extra_config(
-            cfg,
-            "protocol",
-            os.getenv("VLLM_MOONCAKE_PROTOCOL",
-                      os.getenv("MOONCAKE_PROTOCOL", "rdma")),
-        )
-        self._device_name = _get_extra_config(
-            cfg,
-            "device_name",
-            os.getenv("VLLM_MOONCAKE_DEVICE_NAME",
-                      os.getenv("MOONCAKE_DEVICE_NAME", "hns_0")),
-            aliases=("rdma_device", "rdma_devices"),
-        )
-        self._cache_prefix = _get_extra_config(
-            cfg,
-            "cache_prefix", os.getenv("VLLM_MOONCAKE_CACHE_PREFIX", "vllm015")
-        )
+        self._mooncake_config_path = os.getenv("MOONCAKE_CONFIG_PATH", "")
+        self._mooncake_config = MooncakeConfig.load_from_env()
+        self._cache_prefix = _extra_config(cfg, "cache_prefix", "vllm015")
 
         self._replica_num = int(
-            _get_extra_config(
+            _extra_config(
                 cfg,
-                "replica_num", _env_int("MC_STORE_REPLICA_NUM", 1)
+                "replica_num",
+                _env_int("MC_STORE_REPLICA_NUM", 1),
             )
         )
         self._nof_replica_num = int(
-            _get_extra_config(
+            _extra_config(
                 cfg,
-                "nof_replica_num", _env_int("MC_STORE_NOF_REPLICA_NUM", 0)
+                "nof_replica_num",
+                _env_int("MC_STORE_NOF_REPLICA_NUM", 0),
             )
         )
         self._spdk_gpu_dmabuf = _truthy(
-            _get_extra_config(
+            _extra_config(
                 cfg,
-                "spdk_gpu_dmabuf", os.getenv("MC_SPDK_GPU_DMABUF")
+                "spdk_gpu_dmabuf",
+                os.getenv("MC_SPDK_GPU_DMABUF"),
             )
         )
         direct_mode = str(
-            _get_extra_config(cfg, "gpu_direct", os.getenv(
+            _extra_config(cfg, "gpu_direct", os.getenv(
                 "VLLM_MOONCAKE_GPU_DIRECT", "auto"))
         ).lower()
         self._gpu_direct_enabled = self._resolve_gpu_direct(direct_mode)
@@ -237,25 +191,29 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
 
         self._store = MooncakeDistributedStore()
         logger.info(
-            "Mooncake Store setup begin: node=%s metadata=%s master=%s "
+            "Mooncake config source: MOONCAKE_CONFIG_PATH=%s",
+            self._mooncake_config_path,
+        )
+        logger.info(
+            "Mooncake Store setup begin: local_hostname=%s metadata=%s master=%s "
             "global_segment_size=%d local_buffer_size=%d protocol=%s "
             "device=%s",
-            self._node_address,
-            self._metadata_server,
-            self._master_server_address,
-            self._global_segment_size,
-            self._local_buffer_size,
-            self._protocol,
-            self._device_name,
+            self._mooncake_config.local_hostname,
+            self._mooncake_config.metadata_server,
+            self._mooncake_config.master_server_address,
+            self._mooncake_config.global_segment_size,
+            self._mooncake_config.local_buffer_size,
+            self._mooncake_config.protocol,
+            self._mooncake_config.device_name,
         )
         setup_rc = self._store.setup(
-            self._node_address,
-            self._metadata_server,
-            self._global_segment_size,
-            self._local_buffer_size,
-            self._protocol,
-            self._device_name,
-            self._master_server_address,
+            self._mooncake_config.local_hostname,
+            self._mooncake_config.metadata_server,
+            self._mooncake_config.global_segment_size,
+            self._mooncake_config.local_buffer_size,
+            self._mooncake_config.protocol,
+            self._mooncake_config.device_name,
+            self._mooncake_config.master_server_address,
         )
         if setup_rc != 0:
             raise RuntimeError(f"Mooncake Store setup failed: rc={setup_rc}")
@@ -265,11 +223,11 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
             "Mooncake Store connector initialized: node=%s metadata=%s "
             "master=%s protocol=%s device=%s prefix=%s replica_num=%d "
             "nof_replica_num=%d spdk_gpu_dmabuf=%s gpu_direct=%s",
-            self._node_address,
-            self._metadata_server,
-            self._master_server_address,
-            self._protocol,
-            self._device_name,
+            self._mooncake_config.local_hostname,
+            self._mooncake_config.metadata_server,
+            self._mooncake_config.master_server_address,
+            self._mooncake_config.protocol,
+            self._mooncake_config.device_name,
             self._cache_prefix,
             self._replica_num,
             self._nof_replica_num,
