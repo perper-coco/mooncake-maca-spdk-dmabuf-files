@@ -85,6 +85,44 @@ In this mode the connector copies KV to CPU safetensors bytes and uses ordinary
 Mooncake `put/get`, so it still works when Mooncake is built with
 `USE_NOF=OFF` and `USE_SPDK_GPU_DMABUF=OFF`.
 
+## MACA DMA-BUF/RDMA probe
+
+Use this standalone probe before debugging Mooncake/SPDK further. It checks two
+separate capabilities:
+
+1. MACA GPU memory can be exported as a DMA-BUF fd.
+2. The exported DMA-BUF fd can be registered as an RDMA MR by the selected NIC.
+
+Build on the target machine:
+
+```bash
+cd /workspace/opt/mooncake-maca-spdk-dmabuf-files/tools
+export MACA_HOME=/opt/maca-3.5.3
+export LD_LIBRARY_PATH=${MACA_HOME}/lib64:${MACA_HOME}/lib:${LD_LIBRARY_PATH:-}
+bash build_maca_dmabuf_rdma_probe.sh
+```
+
+Only test MACA DMA-BUF export:
+
+```bash
+MC_PROBE_GPU_DEVICE=0 MC_PROBE_SIZE=2097152 /tmp/maca_dmabuf_rdma_probe
+```
+
+Also test RDMA DMA-BUF MR registration on `hns_0`:
+
+```bash
+MC_PROBE_GPU_DEVICE=0 MC_PROBE_SIZE=2097152 MC_PROBE_RDMA_DEVICE=hns_0 \
+  /tmp/maca_dmabuf_rdma_probe
+```
+
+Interpretation:
+
+- `mcMemGetHandleForAddressRange` fails: MACA cannot export this allocation as
+  DMA-BUF in the current runtime/driver mode.
+- `mcMemGetHandleForAddressRange` succeeds but `ibv_reg_dmabuf_mr` fails: MACA
+  DMA-BUF export works, but the RDMA NIC/provider cannot register it.
+- Both succeed: the basic GDR primitive works outside Mooncake/SPDK.
+
 ## Included files
 
 - `mooncake-store/src/CMakeLists.txt`
@@ -104,4 +142,6 @@ Mooncake `put/get`, so it still works when Mooncake is built with
 - `mooncake-transfer-engine/src/transport/rdma_transport/rdma_context.cpp`
 - `mooncake-transfer-engine/src/transport/rdma_transport/rdma_transport.cpp`
 - `mooncake-wheel/mooncake/http_metadata_server.py`
+- `tools/maca_dmabuf_rdma_probe.cpp`
+- `tools/build_maca_dmabuf_rdma_probe.sh`
 - `vllm-connector/mooncake_store_connector.py`
