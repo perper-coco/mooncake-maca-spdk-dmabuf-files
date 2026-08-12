@@ -154,7 +154,7 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
         )
         self._block_size = vllm_config.cache_config.block_size
         self._requests_need_load: dict[str, Request] = {}
-        self._registered_buffers: dict[int, int] = {}
+        self._registered_spdk_buffers: dict[int, int] = {}
         self._known_gpu_storages: dict[int, int] = {}
 
         cfg = self._kv_transfer_config
@@ -260,8 +260,11 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
             logger.info("Mooncake Store GPU direct disabled; skip KV registration")
             return
 
-        required = ("batch_put_from_multi_buffers",
-                    "batch_get_into_multi_buffers")
+        required = (
+            "batch_put_from_multi_buffers",
+            "batch_get_into_multi_buffers",
+            "register_spdk_gpu_buffer",
+        )
         missing = [name for name in required if not hasattr(self._store, name)]
         if missing:
             raise RuntimeError(
@@ -289,10 +292,17 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
         size = int(storage.nbytes())
         if base_ptr in self._known_gpu_storages:
             return
+        rc = self._store.register_spdk_gpu_buffer(base_ptr, size)
+        if rc != 0:
+            raise RuntimeError(
+                "Mooncake SPDK GPU buffer registration failed for "
+                f"{label}: ptr={base_ptr} size={size} rc={rc}"
+            )
         self._known_gpu_storages[base_ptr] = size
+        self._registered_spdk_buffers[base_ptr] = size
         logger.info(
-            "Mooncake Store GPU KV storage discovered without RDMA "
-            "pre-registration: label=%s ptr=%d size=%d",
+            "Mooncake Store GPU KV storage registered for SPDK DMA-BUF "
+            "without RDMA registration: label=%s ptr=%d size=%d",
             label,
             base_ptr,
             size,
@@ -363,15 +373,18 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
         return None, None
 
     def shutdown(self) -> None:
-        unregister = getattr(self._store, "unregister_buffer", None)
+        unregister = getattr(self._store, "unregister_spdk_gpu_buffer", None)
         if callable(unregister):
-            for ptr in list(self._registered_buffers):
+            for ptr in list(self._registered_spdk_buffers):
                 try:
                     unregister(ptr)
                 except Exception:
-                    logger.debug("Mooncake unregister_buffer failed ptr=%d",
-                                 ptr, exc_info=True)
-        self._registered_buffers.clear()
+                    logger.debug(
+                        "Mooncake unregister_spdk_gpu_buffer failed ptr=%d",
+                        ptr,
+                        exc_info=True,
+                    )
+        self._registered_spdk_buffers.clear()
         self._known_gpu_storages.clear()
 
     def __del__(self):
@@ -510,7 +523,7 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
 
     def _maybe_register_for_direct_read(self, tensor: torch.Tensor,
                                         label: str) -> None:
-        register_buffer = getattr(self._store, "register_buffer", None)
+        register_buffer = getattr(self._store, "register_spdk_gpu_buffer", None)
         if not callable(register_buffer):
             return
         if not tensor.is_cuda:
@@ -518,22 +531,23 @@ class MooncakeStoreConnector(KVConnectorBase_V1):
         storage = tensor.untyped_storage()
         base_ptr = int(storage.data_ptr())
         size = int(storage.nbytes())
-        if base_ptr in self._registered_buffers:
+        if base_ptr in self._registered_spdk_buffers:
             return
         rc = register_buffer(base_ptr, size)
         if rc != 0:
             logger.warning(
-                "Mooncake direct-read register_buffer failed for %s: ptr=%d "
-                "size=%d rc=%s. Continuing without pre-registration.",
+                "Mooncake direct-read SPDK GPU registration failed for %s: "
+                "ptr=%d size=%d rc=%s. Continuing without pre-registration.",
                 label,
                 base_ptr,
                 size,
                 rc,
             )
             return
-        self._registered_buffers[base_ptr] = size
+        self._registered_spdk_buffers[base_ptr] = size
         logger.info(
-            "Mooncake Store registered GPU KV storage for direct read: "
+            "Mooncake Store registered GPU KV storage with SPDK for direct "
+            "read: "
             "label=%s ptr=%d size=%d",
             label,
             base_ptr,
