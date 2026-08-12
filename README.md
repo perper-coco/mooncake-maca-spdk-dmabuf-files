@@ -12,9 +12,13 @@ git clone https://github.com/perper-coco/mooncake-maca-spdk-dmabuf-files.git /tm
 
 rsync -av /tmp/mooncake-maca-files/mooncake-store/ ./mooncake-store/
 rsync -av /tmp/mooncake-maca-files/mooncake-transfer-engine/ ./mooncake-transfer-engine/
+rsync -av /tmp/mooncake-maca-files/mooncake-integration/ ./mooncake-integration/
+rsync -av /tmp/mooncake-maca-files/mooncake-wheel/ ./mooncake-wheel/
 ```
 
-Then rebuild Mooncake on the target machine.
+Then rebuild and reinstall Mooncake on the target machine. Reinstalling the
+wheel is required for the Python HTTP metadata server and Python bindings to
+use the updated files.
 
 ## DRAM-only validation mode
 
@@ -87,6 +91,12 @@ Mooncake `put/get`, so it still works when Mooncake is built with
 - `mooncake-store/src/client_service.cpp`
 - `mooncake-store/src/http_metadata_server.cpp`
 - `mooncake-store/src/real_client.cpp`
+- `mooncake-store/src/dummy_client.cpp`
+- `mooncake-store/include/client_service.h`
+- `mooncake-store/include/dummy_client.h`
+- `mooncake-store/include/pyclient.h`
+- `mooncake-store/include/real_client.h`
+- `mooncake-integration/store/store_py.cpp`
 - `mooncake-transfer-engine/include/memory_location.h`
 - `mooncake-transfer-engine/include/transport/rdma_transport/rdma_context.h`
 - `mooncake-transfer-engine/include/transport/rdma_transport/rdma_transport.h`
