@@ -20,6 +20,29 @@ Then rebuild and reinstall Mooncake on the target machine. Reinstalling the
 wheel is required for the Python HTTP metadata server and Python bindings to
 use the updated files.
 
+## Replace SPDK GDR files on target
+
+From the target SPDK source root:
+
+```bash
+rsync -av /tmp/mooncake-maca-files/spdk/ ./
+```
+
+Build SPDK with MACA GPU DMA-BUF support:
+
+```bash
+export MACA_HOME=/opt/maca-3.5.3
+export LD_LIBRARY_PATH=${MACA_HOME}/lib64:${MACA_HOME}/lib:${LD_LIBRARY_PATH:-}
+
+./configure --with-rdma --with-maca=${MACA_HOME} --disable-examples
+make -j"$(nproc)"
+make install
+```
+
+Use `--with-maca`, not `--with-cuda`, for MACA GDR. The MACA path keeps the
+public SPDK gpu-dmabuf ABI unchanged but uses `mcMemGetHandleForAddressRange`
+internally.
+
 ## DRAM-only validation mode
 
 Use this mode to verify that vLLM can still connect to Mooncake after the
@@ -142,6 +165,12 @@ Interpretation:
 - `mooncake-transfer-engine/src/transport/rdma_transport/rdma_context.cpp`
 - `mooncake-transfer-engine/src/transport/rdma_transport/rdma_transport.cpp`
 - `mooncake-wheel/mooncake/http_metadata_server.py`
+- `spdk/CONFIG`
+- `spdk/configure`
+- `spdk/include/spdk/gpu_dmabuf.h`
+- `spdk/lib/dma/Makefile`
+- `spdk/lib/dma/gpu_dmabuf.c`
+- `spdk/mk/spdk.common.mk`
 - `tools/maca_dmabuf_rdma_probe.cpp`
 - `tools/build_maca_dmabuf_rdma_probe.sh`
 - `vllm-connector/mooncake_store_connector.py`
